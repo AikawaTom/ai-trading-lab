@@ -1,0 +1,57 @@
+# AI Trading Lab: แตก site.zip, อัปเดตราคาหุ้น แล้วขึ้น GitHub Pages
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "15 10 * * 1-5"
+    - cron: "30 21 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unzip site
+        run: |
+          rm -rf _site && mkdir _site
+          unzip -q site.zip -d _site
+          if [ ! -f _site/index.html ]; then d=$(dirname "$(find _site -name index.html | head -1)"); cp -r "$d"/. _site/; fi
+          mkdir -p data && cp -r data/. _site/data/ 2>/dev/null || true
+      - name: Update stock prices
+        run: |
+          pip install -q yfinance requests
+          python _site/scripts/update_data.py
+      - name: Save data
+        run: |
+          mkdir -p data && cp -r _site/data/. data/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if ! git diff --cached --quiet; then
+            git commit -m "update data $(date -u +%F)"
+            git pull --rebase origin main && git push
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
